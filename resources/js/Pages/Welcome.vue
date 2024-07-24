@@ -55,6 +55,13 @@ function handleImageError() {
                         >
                             Пользователи
                         </Link>
+                        <Link
+                            v-if="$page.props.auth.user"
+                            :href="route('payments')"
+                            class="rounded-md px-3 py-2 text-black ring-1 ring-transparent transition hover:text-black/70 focus:outline-none focus-visible:ring-[#FF2D20] light:text-white light:hover:text-white/80 light:focus-visible:ring-white"
+                        >
+                            Отчёт по платежам
+                        </Link>
                         <template v-else>
                             <Link
                                 :href="route('login')"

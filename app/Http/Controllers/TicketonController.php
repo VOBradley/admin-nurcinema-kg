@@ -2,12 +2,11 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\TicketonCache;
 use Carbon\Carbon;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Http;
 
 class TicketonController extends Controller
 {
@@ -58,16 +57,42 @@ class TicketonController extends Controller
      */
     public function getPayments(Request $request)
     {
-        $params = $request->get('filterParams');
-        $response = Http
-            ::withHeader('Authorization', 'G2rT6m6YFaOq6qwR69GB3IrMLg5Wv9Ai')
-            ->withQueryParameters([
-                'date_from' => "2024-02-01%2000%3A00%3A00",
-                'date_to' => "2024-03-01%2000%3A00%3A00",
-            ])
-            ->get('https://ticketon.kz/api/create-report/reports/nur_detail_tickets');
+        $date_from = $request->post('date_from');
+        $date_to = $request->post('date_to');
+        $filters = [
+            'date_from' => $date_from ? Carbon::createFromFormat('Y-m-d H:i:s', $date_from)->toDateTimeString() : Carbon::now()->subMonths(2)->toDateTimeString(),
+            'date_to' => $date_to ?  Carbon::createFromFormat('Y-m-d H:i:s', $date_to)->toDateTimeString() : Carbon::now()->toDateTimeString(),
+            'limit' => 2000
+        ];
+        $queryParams = Arr::query($filters);
+        $curl = curl_init();
 
-        return $response->json();
+        curl_setopt_array($curl, array(
+            CURLOPT_URL => "https://ticketon.kz/api/create-report/reports/nur_detail_tickets?$queryParams",
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_ENCODING => '',
+            CURLOPT_MAXREDIRS => 10,
+            CURLOPT_TIMEOUT => 0,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+            CURLOPT_CUSTOMREQUEST => 'GET',
+            CURLOPT_HTTPHEADER => array(
+                'Authorization: G2rT6m6YFaOq6qwR69GB3IrMLg5Wv9Ai'
+            ),
+        ));
+
+        $response = curl_exec($curl);
+        $httpcode = curl_getinfo($curl, CURLINFO_HTTP_CODE);
+        curl_close($curl);
+        if ($httpcode == 200) { //check for true/false
+            $result = json_decode($response)?->result;
+            return $result;
+        }
+        return [
+            'status' => $httpcode,
+            'message' => 'error',
+            'response' => $response
+        ];
     }
 
     public function getPremiers()
