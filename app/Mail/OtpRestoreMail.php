@@ -9,7 +9,7 @@ use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
 
-class OtpMail extends Mailable
+class OtpRestoreMail extends Mailable
 {
     use Queueable, SerializesModels;
 
@@ -42,7 +42,7 @@ class OtpMail extends Mailable
     public function content(): Content
     {
         return new Content(
-            view: 'mail.otp',
+            view: 'mail.otp-restore',
             with: [
                 'otp' => $this->otp_code
             ]
@@ -52,7 +52,7 @@ class OtpMail extends Mailable
     public function build()
     {
         return $this->from(env('MAIL_USERNAME'), 'Admin')
-            ->view('mail.otp')
+            ->view('mail.otp-restore')
             ->with('otp', $this->otp_code);
     }
 

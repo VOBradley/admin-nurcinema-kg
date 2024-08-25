@@ -5,8 +5,12 @@ namespace App\Http\Controllers;
 use App\Http\Requests\Auth\UserLoginRequest;
 use App\Http\Requests\ConfirmCreateUserRequest;
 use App\Http\Requests\ConfirmRegisterRequest;
+use App\Http\Requests\ConfirmRestoreRequest;
+use App\Http\Requests\ConfirmUpdateRestoreUserRequest;
 use App\Http\Requests\RegisterRequest;
+use App\Http\Requests\RestoreRequest;
 use App\Mail\OtpMail;
+use App\Mail\OtpRestoreMail;
 use App\Models\User;
 use App\Models\UserOtp;
 use App\ResponseService;
@@ -39,21 +43,23 @@ class UserController extends Controller
         $email = $request->post('email');
 
         if (is_null($email)) {
-            return ResponseService::success([
+            return ResponseService::fail([
                 'email' => $email,
-            ], 'Email не введёт');
+            ], 'Email адрес не введёт');
         }
 
         $user = User::whereEmail($email)->first();
         if (isset($user)) {
-            return ResponseService::success([
+            return ResponseService::fail([
                 'email' => $email,
             ], 'Email адрес занят');
         }
 
 
-// Проверка наличия записи с тем же email и созданной в течение последних 5 минут
-        $recentOtp = UserOtp::where('otp_model', $email)
+        $recentOtp = UserOtp::where([
+            'otp_model' => $email,
+            'otp_type' => 'REGISTER'
+        ])
             ->where('created_at', '>=', Carbon::now()->subMinutes(5))
             ->first();
 
@@ -63,17 +69,13 @@ class UserController extends Controller
             ], 'OTP код уже отправлен!');
         }
 
-// Удаление всех старых записей OTP для данного email
         UserOtp::where('otp_model', $email)->delete();
 
-// Генерация нового OTP-кода и временного ключа
         $randomNumber = random_int(100001, 999999);
         $otpTemp = Str::uuid();
 
-// Отправка email с новым OTP-кодом
         $mail = Mail::to($email)->send(new OtpMail($randomNumber));
 
-// Сохранение нового OTP-кода в базе данных
         UserOtp::create([
             'otp_code' => $randomNumber,
             'otp_model' => $email,
@@ -93,21 +95,17 @@ class UserController extends Controller
 
         $user = User::whereEmail($email)->first();
         if (isset($user)) {
-            return [
-                'status' => 400,
-                'message' => 'Email адрес занят',
-                'response' => $email
-            ];
+            return ResponseService::fail([
+                'email' => $email,
+            ], 'Email адрес занят');
         }
 
 
         $otpAttempt = UserOtp::whereOtpTemp($otp_temp)->first();
         if ($otpAttempt?->otp_attempt > 2) {
-            return [
-                'status' => 400,
-                'message' => 'Вы потратили все свои попытки!',
-                'response' => $otp_code
-            ];
+            return ResponseService::fail([
+                'otp_code' => $otp_code,
+            ], 'Попытки на ввод OTP исчерпаны');
         }
         $otp = $otpAttempt->where([
             'otp_code' => $otp_code,
@@ -117,11 +115,9 @@ class UserController extends Controller
         if (is_null($otp)) {
             $otpAttempt->otp_attempt = $otpAttempt->otp_attempt + 1;
             $otpAttempt->save();
-            return [
-                'status' => 400,
-                'message' => 'Не верный код!',
-                'response' => $otp_code
-            ];
+            return ResponseService::fail([
+                'otp_code' => $otp_code,
+            ], 'Не верный код OTP');
         }
         $otpAttempt->delete();
 
@@ -151,11 +147,9 @@ class UserController extends Controller
 
         $user = User::whereEmail($email)->first();
         if (isset($user)) {
-            return [
-                'status' => 400,
-                'message' => 'Email адрес занят',
-                'response' => $email
-            ];
+            return ResponseService::fail([
+                'email' => $email,
+            ], 'Email адрес занят');
         }
 
         $otp = UserOtp::where([
@@ -166,11 +160,9 @@ class UserController extends Controller
         ])->first();
 
         if (is_null($otp)) {
-            return [
-                'status' => 400,
-                'message' => 'Не верный код!',
-                'response' => $otp_code
-            ];
+            return ResponseService::fail([
+                'otp_code' => $otp_code,
+            ], 'Не верный OTP');
         }
 
         $newUser = User::create([
@@ -203,5 +195,155 @@ class UserController extends Controller
         return ResponseService::success([
             'token' => $user->createToken("API TOKEN")->plainTextToken
         ]);
+    }
+
+    public function restore(RestoreRequest $request)
+    {
+        $email = $request->post('email');
+
+        if (is_null($email)) {
+            return ResponseService::fail([
+                'email' => $email,
+            ], 'Email адрес не введёт');
+        }
+
+        $user = User::whereEmail($email)->first();
+        if (isset($user)) {
+            $recentOtp = UserOtp::where([
+                'otp_model' => $email,
+                'otp_type' => 'RESTORE'
+            ])
+                ->where('created_at', '>=', Carbon::now()->subMinutes(5))
+                ->first();
+
+            if ($recentOtp) {
+                return ResponseService::success([
+                    'otp_time' => $recentOtp->created_at->subMinutes(5),
+                ], 'OTP код уже отправлен!');
+            }
+
+            UserOtp::where('otp_model', $email)->delete();
+
+            $randomNumber = random_int(100001, 999999);
+            $otpTemp = Str::uuid();
+
+            $mail = Mail::to($email)->send(new OtpRestoreMail($randomNumber));
+
+            UserOtp::create([
+                'otp_code' => $randomNumber,
+                'otp_model' => $email,
+                'otp_temp' => $otpTemp,
+                'otp_type' => 'RESTORE'
+            ]);
+            return ResponseService::success([
+                'otp_temp' => $otpTemp,
+            ]);
+        } else {
+            return ResponseService::fail([
+                'email' => $email,
+            ], 'Email не существует');
+        }
+    }
+
+    public function confirmRestoreOtp(ConfirmRestoreRequest $request)
+    {
+        $email = $request->post('email');
+        $otp_code = $request->post('otp_code');
+        $otp_temp = $request->post('otp_temp');
+
+        if (is_null($email)) {
+            return ResponseService::fail([
+                'email' => $email,
+            ], 'Email адрес не введёт');
+        }
+
+        $user = User::whereEmail($email)->first();
+        if (isset($user)) {
+            $otpAttempt = UserOtp::whereOtpTemp($otp_temp)->first();
+            if ($otpAttempt?->otp_attempt > 2) {
+                return ResponseService::fail([
+                    'otp_code' => $otp_code,
+                ], 'Попытки на ввод OTP исчерпаны');
+            }
+            $otp = $otpAttempt->where([
+                'otp_code' => $otp_code,
+                'otp_model' => $email,
+                'otp_type' => 'RESTORE'
+            ])->first();
+            if (is_null($otp)) {
+                $otpAttempt->otp_attempt = $otpAttempt->otp_attempt + 1;
+                $otpAttempt->save();
+                return ResponseService::fail([
+                    'otp_code' => $otp_code,
+                ], 'Не верный код OTP');
+            }
+            $otpAttempt->delete();
+
+            $randomNumber = random_int(100001, 999999);
+            $newOtpTemp = Str::uuid();
+
+            UserOtp::create([
+                'otp_code' => $randomNumber,
+                'otp_model' => $email,
+                'otp_temp' => $newOtpTemp,
+                'otp_type' => 'CONFIRM_RESTORE_CODE'
+            ]);
+
+            return ResponseService::success([
+                'otp_temp' => $newOtpTemp,
+                'otp_code' => $randomNumber
+            ]);
+        } else {
+            return ResponseService::fail([
+                'email' => $email,
+            ], 'Email не существует');
+        }
+    }
+
+    public function updatePasswordByRestore(ConfirmUpdateRestoreUserRequest $request)
+    {
+        $email = $request->post('email');
+        $otp_code = $request->post('otp_code');
+        $otp_temp = $request->post('otp_temp');
+        $password = $request->post('password');
+
+        if (is_null($email)) {
+            return ResponseService::fail([
+                'email' => $email,
+            ], 'Email адрес не введёт');
+        }
+
+        $user = User::whereEmail($email)->first();
+        if (isset($user)) {
+            $otp = UserOtp::where([
+                'otp_temp' => $otp_temp,
+                'otp_code' => $otp_code,
+                'otp_model' => $email,
+                'otp_type' => 'CONFIRM_RESTORE_CODE'
+            ])->first();
+
+            if (is_null($otp)) {
+                return ResponseService::fail([
+                    'otp_code' => $otp_code,
+                ], 'Не верный OTP');
+            }
+
+            $updateUser = User::where('email', $email)->first();
+            $updateUser->password = Hash::make($password);
+            $updateUser->save();
+
+            event(new Registered($user));
+
+            $token = $updateUser->createToken("vshchukin")->plainTextToken;
+            $otp->delete();
+            return ResponseService::success([
+                'email' => $email,
+                'token' => $token
+            ]);
+        } else {
+            return ResponseService::fail([
+                'email' => $email,
+            ], 'Email не существует');
+        }
     }
 }
