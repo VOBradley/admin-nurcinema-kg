@@ -1,6 +1,5 @@
 <?php
 
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 Route::get('get_dates', [\App\Http\Controllers\TicketonController::class, 'getDates']);
@@ -10,3 +9,8 @@ Route::get('get_film/{id}', [\App\Http\Controllers\TicketonController::class, 'g
 Route::get('get_premiers', [\App\Http\Controllers\TicketonController::class, 'getPremiers']);
 Route::get('get_premier/{filmId}', [\App\Http\Controllers\TicketonController::class, 'getPremierByFilmId']);
 Route::post('get_payments', [\App\Http\Controllers\TicketonController::class, 'getPayments']);
+
+Route::post('user/registration', [\App\Http\Controllers\UserController::class, 'registration']);
+Route::post('user/login', [\App\Http\Controllers\UserController::class, 'login']);
+Route::post('user/confirm_register', [\App\Http\Controllers\UserController::class, 'confirmRegisterOtp']);
+Route::post('user/confirm_create', [\App\Http\Controllers\UserController::class, 'createAccount']);
