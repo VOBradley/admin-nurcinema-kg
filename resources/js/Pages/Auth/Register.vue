@@ -3,9 +3,10 @@ import InputError from '@/Components/InputError.vue';
 import InputLabel from '@/Components/InputLabel.vue';
 import PrimaryButton from '@/Components/PrimaryButton.vue';
 import TextInput from '@/Components/TextInput.vue';
-import {Head, Link, router, useForm} from '@inertiajs/vue3';
+import {Head, router, useForm} from '@inertiajs/vue3';
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout.vue";
 import {TUser} from "@/types/user";
+import {ref} from "vue";
 
 defineProps<{
     users: TUser[]
@@ -14,16 +15,45 @@ const form = useForm({
     name: '',
     email: '',
     password: '',
+    is_admin: false,
     password_confirmation: '',
 });
 
 const submit = () => {
-    form.post(route('register'), {
-        onFinish: () => {
-            form.reset('password', 'password_confirmation');
-        },
-    });
+    if (editedId.value) {
+        form.post(route('user.update', {
+            id: editedId.value
+        }), {
+            onFinish: () => {
+                editedId.value = null
+                form.reset('password', 'password_confirmation');
+                form.name = ''
+                form.email = ''
+                form.is_admin = false
+            },
+        });
+    } else {
+        form.post(route('register'), {
+            onFinish: () => {
+                form.reset('password', 'password_confirmation');
+            },
+        });
+    }
 };
+const editedId = ref<number | null>()
+const edit = (user: TUser) => {
+    form.name = user.name
+    form.email = user.email
+    form.is_admin = user.is_admin
+    editedId.value = user.id
+}
+
+const create = () => {
+    form.name = ''
+    form.email = ''
+    form.is_admin = false
+    editedId.value = null
+}
 
 const remove = (id: TUser['id']) => {
     router.delete(route('profile.remove'), {
@@ -53,6 +83,7 @@ const remove = (id: TUser['id']) => {
                                     <tr>
                                         <th scope="col" class="px-6 py-4">#</th>
                                         <th scope="col" class="px-6 py-4">Почта</th>
+                                        <th scope="col" class="px-6 py-4">Админ</th>
                                         <th scope="col" class="px-6 py-4">Имя</th>
                                         <th scope="col" class="px-6 py-4">Действия</th>
                                     </tr>
@@ -61,8 +92,13 @@ const remove = (id: TUser['id']) => {
                                     <tr class="border-b border-neutral-200 light:border-black/10" v-for="user in users">
                                         <td class="whitespace-nowrap px-6 py-4 font-medium">{{ user.id }}</td>
                                         <td class="whitespace-nowrap px-6 py-4">{{ user.email }}</td>
+                                        <td class="whitespace-nowrap px-6 py-4">
+                                            <v-switch disabled v-model="user.is_admin"></v-switch>
+                                        </td>
                                         <td class="whitespace-nowrap px-6 py-4">{{ user.name }}</td>
                                         <td class="whitespace-nowrap px-6 py-4">
+                                            <v-btn class="mr-5" variant="tonal" icon="mdi-pencil" size="x-small"
+                                                   color="green" @click="edit(user)"></v-btn>
                                             <v-btn @click="remove(user.id)" variant="tonal" size="x-small" color="red"
                                                    icon="mdi-delete"></v-btn>
                                         </td>
@@ -85,7 +121,7 @@ const remove = (id: TUser['id']) => {
                             <TextInput
                                 id="name"
                                 type="text"
-                                class="mt-1 block w-full"
+                                class="mt-1 block w-full border"
                                 v-model="form.name"
                                 required
                                 autofocus
@@ -101,13 +137,26 @@ const remove = (id: TUser['id']) => {
                             <TextInput
                                 id="email"
                                 type="email"
-                                class="mt-1 block w-full"
+                                class="mt-1 block w-full border"
                                 v-model="form.email"
                                 required
                                 autocomplete="username"
                             />
 
                             <InputError class="mt-2" :message="form.errors.email"/>
+                        </div>
+                        <div class="mt-4">
+                            <InputLabel for="email" value="Админ"/>
+
+                            <VSwitch
+                                id="email"
+                                type="email"
+                                class="mt-1 block w-full border"
+                                v-model="form.is_admin"
+                                autocomplete="username"
+                            />
+
+                            <InputError class="mt-2" :message="form.errors.is_admin"/>
                         </div>
 
                         <div class="mt-4">
@@ -116,9 +165,8 @@ const remove = (id: TUser['id']) => {
                             <TextInput
                                 id="password"
                                 type="password"
-                                class="mt-1 block w-full"
+                                class="mt-1 block w-full border"
                                 v-model="form.password"
-                                required
                                 autocomplete="new-password"
                             />
 
@@ -131,9 +179,8 @@ const remove = (id: TUser['id']) => {
                             <TextInput
                                 id="password_confirmation"
                                 type="password"
-                                class="mt-1 block w-full"
+                                class="mt-1 block w-full border"
                                 v-model="form.password_confirmation"
-                                required
                                 autocomplete="new-password"
                             />
 
@@ -141,9 +188,10 @@ const remove = (id: TUser['id']) => {
                         </div>
 
                         <div class="flex items-center justify-end mt-4">
+                            <v-btn v-if="editedId" @click="create">Создать нового</v-btn>
                             <PrimaryButton class="ms-4" :class="{ 'opacity-25': form.processing }"
                                            :disabled="form.processing">
-                                Создать
+                                {{ editedId ? 'Изменить' : 'Создать' }}
                             </PrimaryButton>
                         </div>
                     </form>

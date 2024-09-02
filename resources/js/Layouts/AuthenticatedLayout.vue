@@ -38,6 +38,12 @@ const showingNavigationDropdown = ref(false);
                                 <NavLink :href="route('payments')" :active="route().current('payments')">
                                     Отчёт по платежам
                                 </NavLink>
+                                <NavLink href="/custom_content/ABOUT">
+                                   О Компании
+                                </NavLink>
+                                <NavLink href="/contacts">
+                                    Контакты
+                                </NavLink>
                             </div>
                         </div>
 
@@ -126,6 +132,12 @@ const showingNavigationDropdown = ref(false);
                         </ResponsiveNavLink>
                         <ResponsiveNavLink :href="route('payments')" :active="route().current('payments')">
                             Отчёт по платежам
+                        </ResponsiveNavLink>
+                        <ResponsiveNavLink href="/custom_content/ABOUT">
+                            О компании
+                        </ResponsiveNavLink>
+                        <ResponsiveNavLink href="/contacts">
+                            Контакты
                         </ResponsiveNavLink>
                     </div>
 

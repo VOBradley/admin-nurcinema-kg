@@ -7,7 +7,6 @@ use App\Models\User;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rules;
 use Inertia\Inertia;
@@ -24,6 +23,21 @@ class RegisteredUserController extends Controller
         return Inertia::render('Auth/Register', [
             'users' => $users
         ]);
+    }
+
+    public function update(Request $request, $id)
+    {
+        $user = User::where('id', $id)->first();
+        if ($user) {
+            $user->name = $request->post('name');
+            $user->email = $request->post('email');
+            $user->is_admin = $request->post('is_admin');
+            $user->name = $request->post('name');
+            if ($request->post('password')) {
+                $user->password = Hash::make($request->password);
+            }
+            $user->save();
+        }
     }
 
     /**

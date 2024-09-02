@@ -18,6 +18,8 @@ const vuetify = createVuetify({
         defaultTheme: 'light'
     }
 })
+import { QuillEditor } from '@vueup/vue-quill'
+import '@vueup/vue-quill/dist/vue-quill.snow.css';
 const appName = import.meta.env.VITE_APP_NAME || 'Laravel';
 
 createInertiaApp({
@@ -28,6 +30,7 @@ createInertiaApp({
             .use(plugin)
             .use(ZiggyVue)
             .use(vuetify)
+            .component('QuillEditor', QuillEditor)
             .mount(el);
     },
     progress: {
