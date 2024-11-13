@@ -32,7 +32,6 @@ class AuthenticatedSessionController extends Controller
     public function store(LoginRequest $request): RedirectResponse
     {
         $user = User::where('email', $request->email)->where('is_admin', true)->first();
-
         if(!$user) throw new AuthenticationException('Ошибка авторизации');
         $request->authenticate();
 

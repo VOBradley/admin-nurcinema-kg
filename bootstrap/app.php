@@ -3,6 +3,7 @@
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Request;
 use Rakutentech\LaravelRequestDocs\LaravelRequestDocsMiddleware;
 
 return Application::configure(basePath: dirname(__DIR__))
@@ -20,9 +21,23 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->api(append: [
             LaravelRequestDocsMiddleware::class
         ]);
-
+        $middleware->validateCsrfTokens(except: [
+            '*' // <-- exclude this route
+        ]);
         //
     })
     ->withExceptions(function (Exceptions $exceptions) {
-        //
+        $exceptions->render(function (Throwable $e, \Illuminate\Http\Request $request) {
+            if ($request->is('api/*')) {
+                return \App\ResponseService::fail(null, $e->getMessage(), 500);
+            } else {
+//                abort(404);
+            }
+
+        });
+        $exceptions->renderable(function (\Exception $e) {
+            if ($e->getPrevious() instanceof \Illuminate\Session\TokenMismatchException) {
+                return redirect()->back();
+            };
+        });
     })->create();

@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\User;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Hash;
 
 class SetVladobradleySuperUser extends Command
 {
@@ -27,7 +28,9 @@ class SetVladobradleySuperUser extends Command
     public function handle()
     {
         $user = User::where('email', "vladobradley@yahoo.com")->first();
+        var_dump($user);
         $user->is_admin = true;
+        $user->password = Hash::make("qwe123!@#");
         $user->save();
 
     }

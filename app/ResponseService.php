@@ -13,12 +13,12 @@ class ResponseService
         ];
     }
 
-    public static function fail($data, $message = null)
+    public static function fail($data, $message = null, $status = 500)
     {
-        return [
+        return response()->json([
             "success" => false,
             "data" => $data,
             "message" => $message
-        ];
+        ])->setStatusCode($status ?? 500);
     }
 }

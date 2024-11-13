@@ -44,6 +44,9 @@ const showingNavigationDropdown = ref(false);
                                 <NavLink href="/contacts">
                                     Контакты
                                 </NavLink>
+                                <NavLink href="/backgrounds">
+                                    Задний фон
+                                </NavLink>
                             </div>
                         </div>
 
@@ -138,6 +141,9 @@ const showingNavigationDropdown = ref(false);
                         </ResponsiveNavLink>
                         <ResponsiveNavLink href="/contacts">
                             Контакты
+                        </ResponsiveNavLink>
+                        <ResponsiveNavLink href="/backgrounds">
+                            Задний фон
                         </ResponsiveNavLink>
                     </div>
 

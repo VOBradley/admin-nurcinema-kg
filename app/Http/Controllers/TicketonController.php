@@ -2,11 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\SaleList;
 use App\ResponseService;
 use Carbon\Carbon;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 
 class TicketonController extends Controller
@@ -144,7 +146,7 @@ class TicketonController extends Controller
     {
         $events = $this->getCacheByKey('events');
         $events = collect($events)->filter(function ($event) {
-            return isset($event) && time() < $event->premiere_ts;
+            return $event?->premiere_ts;
         })->map(function ($resultEvent) {
             return [
                 'filmId' => $resultEvent->id,
@@ -187,7 +189,7 @@ class TicketonController extends Controller
     {
         $events = $this->getCacheByKey('events');
         $events = collect($events)->filter(function ($event) {
-            return isset($event) && time() < $event->premiere_ts;
+            return $event?->premiere_ts;
         })->map(function ($resultEvent) {
             return [
                 'filmId' => $resultEvent->id,
@@ -424,10 +426,376 @@ class TicketonController extends Controller
 
     public function getCacheByKey($key)
     {
-        $result = Cache::remember($key, 1440, function () use ($key) {
+        $result = Cache::remember($key, 15, function () use ($key) {
             $response = $this->getShowsFromTicketon();
             return $response;
         });
         return collect($result->$key)->toArray();
+    }
+
+    public function getTicketonToken()
+    {
+        $result = $this->getTicketHttpToken();
+        return ResponseService::success($result);
+    }
+
+    private function getTicketHttpToken()
+    {
+        $curl = curl_init();
+
+        curl_setopt_array($curl, array(
+            CURLOPT_URL => 'https://ticketon.kz/api/auth/login',
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_ENCODING => '',
+            CURLOPT_MAXREDIRS => 10,
+            CURLOPT_TIMEOUT => 0,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+            CURLOPT_CUSTOMREQUEST => 'POST',
+            CURLOPT_POSTFIELDS => array('login' => 'nurcinema', 'password' => 'DNRb2wS98W'),
+        ));
+
+        $response = curl_exec($curl);
+        $response = json_decode($response);
+        curl_close($curl);
+        return $response->data->token;
+    }
+
+    public function createOrder(Request $request)
+    {
+        $filmId = $request->input('filmId');
+        $showId = $request->input('showId');
+        $email = $request->input('email');
+        $amount = $request->input('amount');
+        $phone = $request->input('phone');
+        if (is_null($phone)) return ResponseService::fail(null, 'Вы не ввели номер телефона');
+        if (is_null($email)) return ResponseService::fail(null, 'Вы не почту');
+        if (is_null($phone)) return ResponseService::fail(null, 'Не введена сумма');
+        $payment_type = $request->input('payment_type');
+        $payment_type_code = $request->input('payment_type_code');
+        $showInfo = $this->getTicketonFilmsToCreateOrder($filmId, $showId);
+        $curl = curl_init();
+        $orderNumber = rand(10000001, 999999999);
+        $token = "d14e041cc43b5db89a65fa5c7acdf90eefc0f8df";
+        $seats = $request->input('seats'); // Пример массива мест
+        $lang = "ru";
+
+        $queryParams = http_build_query([
+            'token' => $token,
+            'show' => $showId,
+            'seats' => $seats,  // Преобразуем массив мест в строку запроса
+            'lang' => $lang,
+            'externalId' => $orderNumber
+        ]);
+
+        $url = 'https://api.ticketon.kz/sale_create?' . $queryParams;
+        curl_setopt_array($curl, [
+            CURLOPT_URL => $url,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_ENCODING => '',
+            CURLOPT_MAXREDIRS => 10,
+            CURLOPT_TIMEOUT => 0,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+            CURLOPT_CUSTOMREQUEST => 'GET',
+            CURLOPT_HTTPHEADER => [
+                'Content-type: application/json',
+            ],
+        ]);
+
+        $response = curl_exec($curl);
+
+        if (curl_errno($curl)) {
+            echo 'Ошибка CURL: ' . curl_error($curl);
+        } else {
+            // Вывод ответа от сервера
+            $response = json_decode($response, true);;
+        }
+
+        if (isset($response['status']) && $response['status'] === 0) {
+            return ResponseService::fail($response['error']);
+        }
+        curl_close($curl);
+
+        $sale = SaleList::create([
+            'user_id' => Auth::id(),
+            'order_id' => $orderNumber,
+            'seats' => $response['seats'],
+            'seats_text' => $response['seats_text'],
+            'show_id' => $showId,
+            'show_info' => $showInfo,
+            'sum' => $response['sum'],
+            'price' => $response['price'],
+            'sale' => $response['sale'],
+            'reservation_id' => $response['reservation_id'],
+            'currency' => $response['currency'],
+            'status' => 'wait_payment',
+            'email' => $email,
+            'phone' => $phone,
+            'payment_type' => "$payment_type-$payment_type_code",
+        ]);
+
+        $saleConfirm = $this->saleConfirm(
+            $token,
+            $sale->sale,
+            $sale->email,
+            $sale->phone,
+            $payment_type_code,
+            $sale->payment_type,
+            true,
+            false,
+            [
+                "ticketType" => 'стандарт'
+            ],
+            'Фильм',
+            'г. Ош, Кинотеатр «Нур»',
+            'https://nurcinema.kg',
+        );
+
+//        $sale->ticketon_callback_info = $saleConfirm;
+        $sale->save();
+        return $this->createPaybox($sale->sale, $amount, $email, $phone);
+        return ResponseService::success($sale);
+    }
+
+    private function createPaybox($sale, $amount, $email, $phone)
+    {
+
+
+        $curl = curl_init();
+
+        $data = (object)[
+            'order_id' => $sale,
+            'amount' => $amount,
+            'external_result_url' => "https://nurcinema.kg/api/approved-payment?order_id=$sale",
+            'success_url' => "https://nurcinema.kg/api/success-payment?order_id=$sale",
+            'failure_url' => "https://nurcinema.kg/api/fail-payment?order_id=$sale",
+            'email' => $email,
+            'phone' => $phone,
+            'site_url' => 'https://nurcinema.kg',
+            'currency' => '417',
+            'language' => 'kgs'
+        ];
+
+// Преобразуем объект в JSON
+        $jsonData = json_encode($data);
+        $token = $this->getTicketHttpToken();
+// Настраиваем cURL
+        curl_setopt_array($curl, array(
+            CURLOPT_URL => 'https://ticketon.kz/api/v2/pay/paybox',
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_ENCODING => '',
+            CURLOPT_MAXREDIRS => 10,
+            CURLOPT_TIMEOUT => 0,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+            CURLOPT_CUSTOMREQUEST => 'POST',
+            CURLOPT_POSTFIELDS => $jsonData, // Используем JSON-строку
+            CURLOPT_HTTPHEADER => array(
+                'Content-Type: application/json',
+                "Authorization: Bearer $token",
+            ),
+        ));
+
+        $response = curl_exec($curl);
+
+        curl_close($curl);
+        echo $response;
+
+    }
+
+    private function saleConfirm(
+        $token,
+        $sale,
+        $email,
+        $phone,
+        $type,
+        $paymentType,
+        $agreement,
+        $useBonuses,
+        $ticketTypes,
+        $eventType,
+        $address,
+        $pageLocation
+    )
+    {
+        $queryParams = http_build_query([
+            'token' => $token,
+            'sale' => $sale,
+            'email' => $email,
+            'phone' => $phone,
+            'type' => $type,
+//            'paymentType' => $paymentType,
+//            'agreement' => $agreement,
+//            'useBonuses' => $useBonuses,
+//            'items' => $ticketTypes,
+//            'eventType' => $eventType,
+//            'address' => $address,
+//            'pageLocation' => $pageLocation,
+        ]);
+
+        $curl = curl_init();
+
+        curl_setopt_array($curl, array(
+            CURLOPT_URL => 'https://api.ticketon.kz/sale_confirm?' . $queryParams,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_ENCODING => '',
+            CURLOPT_MAXREDIRS => 10,
+            CURLOPT_TIMEOUT => 0,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+            CURLOPT_CUSTOMREQUEST => 'GET',
+            CURLOPT_HTTPHEADER => array(
+                'Content-type: application/json'
+            ),
+        ));
+
+        $response = curl_exec($curl);
+        $updateResponse = null;
+        if (curl_errno($curl)) {
+            echo 'Ошибка CURL: ' . curl_error($curl);
+        } else {
+            // Вывод ответа от сервера
+            $updateResponse = json_decode($response, true);;
+        }
+        if (is_null($updateResponse)) {
+            return $response;
+        }
+        return $updateResponse;
+    }
+
+    public function confirmToConfirmPayment(Request $request)
+    {
+        $token = "d14e041cc43b5db89a65fa5c7acdf90eefc0f8df";
+        $orderId = $request->get('order_id');
+        $sale = SaleList::where('sale', $orderId)->first();
+        $result = $this->checkStatus($orderId);
+        $sale->status = 'success';
+        $sale->ticket = $result;
+        $sale->save();
+        return redirect('https://nurcinema.kg');
+        return ResponseService::success($sale);
+    }
+
+    public function checkStatus($sale)
+    {
+
+
+        $curl = curl_init();
+
+        curl_setopt_array($curl, array(
+            CURLOPT_URL => "https://api.ticketon.kz/order_check?token=d14e041cc43b5db89a65fa5c7acdf90eefc0f8df&i18n=&sale=$sale",
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_ENCODING => '',
+            CURLOPT_MAXREDIRS => 10,
+            CURLOPT_TIMEOUT => 0,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+            CURLOPT_CUSTOMREQUEST => 'GET',
+            CURLOPT_HTTPHEADER => array(
+                'Cookie: session=J7ul7nxmzxoMfdd5YQM%2CQvBF4WTZkH5aq813P-kk55naWjORK74esix8wyYXoyQu6fGfmDPE0F9IarCGeDoTH3'
+            ),
+        ));
+
+        $response = curl_exec($curl);
+        if (curl_errno($curl)) {
+            echo 'Ошибка CURL: ' . curl_error($curl);
+        } else {
+            // Вывод ответа от сервера
+            $response = json_decode($response, true);;
+        }
+        return $response;
+
+    }
+
+    public function confirmToFailedPayment(Request $request)
+    {
+        $token = "d14e041cc43b5db89a65fa5c7acdf90eefc0f8df";
+        $orderId = $request->get('order_id');
+        $sale = SaleList::where('sale', $orderId)->first();
+        $queryParams = http_build_query([
+            'token' => $token,
+            'sale' => $sale->sale
+        ]);
+
+        $curl = curl_init();
+
+        curl_setopt_array($curl, array(
+            CURLOPT_URL => 'https://api.ticketon.kz/sale_cancel?' . $queryParams,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_ENCODING => '',
+            CURLOPT_MAXREDIRS => 10,
+            CURLOPT_TIMEOUT => 0,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+            CURLOPT_CUSTOMREQUEST => 'GET',
+            CURLOPT_HTTPHEADER => array(
+                'Content-type: application/json'
+            ),
+        ));
+        $response = curl_exec($curl);
+        if (curl_errno($curl)) {
+            echo 'Ошибка CURL: ' . curl_error($curl);
+        } else {
+            // Вывод ответа от сервера
+            $response = json_decode($response, true);;
+        }
+
+        if (isset($response['status']) && $response['status'] === 1) {
+            $sale->status = 'cancel';
+            $sale->ticketon_callback_info = $response;
+            $sale->save();
+        } else {
+            $sale->status = 'error';
+            $sale->ticketon_callback_info = $response;
+            $sale->save();
+        }
+
+        $sale->save();
+        return redirect('https://nurcinema.kg');
+    }
+
+    // wait_payment
+    // wait_confirm_payment
+    // success
+    // cancel
+    // error
+
+    private function getTicketonFilmsToCreateOrder($filmId, $timeId)
+    {
+        $events = $this->getCacheByKey('events');
+        $shows = $this->getCacheByKey('shows');
+        $resultEvent = collect($events)->where('id', $filmId)->first();
+        $eventShows = collect($shows)->where('event', $filmId)->map(function ($show) {
+            $showDateTime = Carbon::parse($show->dt);
+            return [
+                'time' => $showDateTime->format('H:i'), // Формат времени 'H:i'
+                'date' => $showDateTime->format('d.m.Y'),
+                'formatContent' => $show->format,
+                'hallName' => $show->hall,
+                'hallId' => $show->hall_id,
+                'ticketonId' => $show->id,
+                'price' => $show->prices[0]->sum,
+                'sessionId' => $show->session_id
+            ];
+        })->filter(function ($show) use ($timeId) {
+            return $show['ticketonId'] == $timeId;
+        })->values();
+        $result = [
+            'filmId' => $resultEvent->id,
+            'filmName' => $resultEvent->name,
+            'age' => $resultEvent->fcsk,
+            'picture' => count($resultEvent->images) > 0 ? $resultEvent->images[0]->url : $resultEvent->cover,
+            'duration' => $resultEvent->duration,
+            'time' => $eventShows->first(), // Преобразуем коллекцию обратно в массив
+        ];
+        return $result;
+    }
+
+    public function myOrders()
+    {
+        $userId = Auth::id();
+        $sales = SaleList::whereUserId($userId)->get();
+        return ResponseService::success($sales);
     }
 }

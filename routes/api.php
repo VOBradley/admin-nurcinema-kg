@@ -1,7 +1,9 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-
+Route::get('get-config', [\App\Http\Controllers\ConfigController::class, 'getConfig']);
+Route::get('fail-payment', [\App\Http\Controllers\TicketonController::class, 'confirmToFailedPayment']);
+Route::get('success-payment', [\App\Http\Controllers\TicketonController::class, 'confirmToConfirmPayment']);
 Route::get('get_dates', [\App\Http\Controllers\TicketonController::class, 'getDates']);
 Route::get('get_films', [\App\Http\Controllers\TicketonController::class, 'getFilms']);
 Route::get('get_conversation', [\App\Http\Controllers\TicketonController::class, 'getСonversations']);
@@ -9,7 +11,12 @@ Route::get('get_film/{id}', [\App\Http\Controllers\TicketonController::class, 'g
 Route::get('get_premiers', [\App\Http\Controllers\TicketonController::class, 'getPremiers']);
 Route::get('get_premier/{filmId}', [\App\Http\Controllers\TicketonController::class, 'getPremierByFilmId']);
 Route::post('get_payments', [\App\Http\Controllers\TicketonController::class, 'getPayments']);
-
+Route::get('get_ticketon_token', [\App\Http\Controllers\TicketonController::class, 'getTicketonToken']);
+Route::get('get_bgs', [\App\Http\Controllers\BackgroundListController::class, 'getBgList']);
+Route::middleware('auth:sanctum')->group(function () {
+    Route::post('create_order', [\App\Http\Controllers\TicketonController::class, 'createOrder']);
+    Route::get('my_orders', [\App\Http\Controllers\TicketonController::class, 'myOrders']);
+});
 Route::prefix('vs')->group(function () {
     Route::get('get_films', [\App\Http\Controllers\TicketonController::class, 'getVsFilms']);
     Route::get('get_dates', [\App\Http\Controllers\TicketonController::class, 'getVsDates']);
